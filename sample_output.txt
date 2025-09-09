@@ -1,0 +1,82 @@
+Actioned management packet a828ee5285f23a28ee5285f23a080006c0a86009c0a86017cb360016000000010000000002d6741177921cead0b3a8f82009c9b4cce825fa9c
+ROUTE to dmz
+dmz: sent packet ab28ee529c61ab28ee529c61ab080006cb00714d0a010036c93b01bb0000000100000000026357ce50342209ee6188003068ba9ee1938fdc33faad51c653f66d89c3ae
+NAT: allocate 10.1.0.54:443 -> 130.102.184.1:64487
+# Note! This is RANDOM ephemeral port above  ^^^^^ - yours will be different!
+ROUTE to ext
+ext: sent packet aa28ee529c61ab28ee524c4d700800068266b801cb00714dfbe7c93b000000010000000210204a994ff9fa83db56befb47ba2437afdac7fa76a86d16b061b7c1b0a9f18f695fe57fb16c2f13a749233dc54b96964c8fa5
+ROUTE to ext
+ext: sent packet a928ee529c61ab28ee52e2b7300800068266b801a0173648c64c01bb000000010000000002416dd2f18b0c2348a4706471abe0095d8e07af1a
+ROUTE to ext
+ext: sent packet a928ee529c61ab28ee52e2b7300800068266b801c92f5c67c13b01bb0000000100000000029f1646ecb28646f75ca7b68dabc50f3af624d4524557
+ROUTE to int
+int: sent packet ab28ee529c61ab28ee529c61ab080006a01736480a000a2201bb87070000000200000002105e8df770ece9530b90a7463a9365c0726aa2be6ec34dfb61b35eec8c5a6bdcb68f9fa2c939ab5b80
+ROUTE to int
+int: sent packet ab28ee529c61ab28ee529c61ab080006c92f5c670a000f4e01bbb26e000000020000000210e3c13cfe4ea79462bc88a1541830f1647c75b3fe2f78390b60dc674827f849867dde3fbed8f9c361a3af11ab
+NAT: allocate 10.0.5.5:22303 -> 130.102.184.1:58569
+# Note!  This is RANDOM ephemeral port above  ^^^^^ - yours will be different!
+ROUTE to ext
+ext: sent packet a928ee529c61ab28ee52e2b7300800118266b80108080808e4c90035faefcaf36f788f541211cfd38ad1e86a81e285b547c31b499941f91b
+ROUTE to ext
+ext: sent packet ab28ee529c61ab28ee529c61ab080011080808088266b8010035d12d7641fcb11794d4a036cc40087f1e4bebb22ea7515652a6406a0f65d0
+NAT: allocate 10.0.5.5:32491 -> 130.102.184.1:56685
+# Note again!  This is RANDOM ephemeral port  ^^^^^
+ROUTE to ext
+ext: sent packet a928ee529c61ab28ee52e2b7300800118266b80108080808dd6d00357e2a33b987875e7b498fea5ec5f4d97bc8f6d2ca4723b62c69fb1ce0
+ROUTE to ext
+ext: sent packet ab28ee529c61ab28ee529c61ab080011080808088266b8010035f5d4160a26e070de4178610ae5781da9dffd33a3e56faaa2f934fda2300d
+NAT: allocate 10.0.5.5:36768 -> 130.102.184.1:49696
+ROUTE to ext
+ext: sent packet a928ee529c61ab28ee52e2b7300800118266b80108080808c220003562aff11f31ee1404e2528aadeb07a70339cfb162bb6467e9a80d2faa
+ROUTE to ext
+ext: sent packet ab28ee529c61ab28ee529c61ab080011080808088266b8010035fbca3823ea60b5c6ea6766c3b2efa8b627a373e26b907f4a5d57e9886777
+NAT: allocate 10.1.0.10:36168 -> 130.102.184.1:62795
+ROUTE to ext
+ext: sent packet aa28ee529c61ab28ee524c4d700800118266b80101010101f54b003542451cff08396a82e698c1ccbb922a08b98d6ac8
+ROUTE to ext
+ext: sent packet ab28ee529c61ab28ee529c61ab080011010101018266b8010035d97ae69d6f50e542e6690d3362ab6a6645c6b1ee8154099e8abc
+NAT: allocate 10.1.0.10:35707 -> 130.102.184.1:56478
+ROUTE to ext
+ext: sent packet aa28ee529c61ab28ee524c4d700800118266b80101010101dc9e003511259ffc2a06bd56b31dd316df1489f0a6b55b4a
+ROUTE to ext
+ext: sent packet ab28ee529c61ab28ee529c61ab080011010101018266b8010035e98b09b4a0af5b35a96ab3f07196cddce27cf6dc7773a527a951
+NAT: allocate 10.1.0.10:23573 -> 130.102.184.1:49444
+ROUTE to ext
+ext: sent packet aa28ee529c61ab28ee524c4d700800118266b80101010101c124003584b0f05b2e2dfb8c2ae9047b9d5681a55c24268e
+ROUTE to ext
+ext: sent packet ab28ee529c61ab28ee529c61ab080011010101018266b8010035f30bf55a1c02fea2ae0126da5137959b8b7f1eace832948003ff
+NAT: allocate 10.1.0.10:25206 -> 130.102.184.1:64078
+ROUTE to ext
+ext: sent packet aa28ee529c61ab28ee524c4d700800118266b80101010101fa4e0035fa3b6922f68ff7d21f949d35aedfcb0c2d1311ea
+ROUTE to ext
+ext: sent packet ab28ee529c61ab28ee529c61ab080011010101018266b8010035ed95562967fe4259708179e3f9978d5ae68bc5ee31c9df4945e7
+ALERT drop: new incoming TCP not allowed by policy
+ALERT drop: new incoming TCP not allowed by policy
+ROUTE to int
+int: sent packet ab28ee529c61ab28ee529c61ab080006c63364090a0000379c4000500000000100000000028eebc4621ec9885d3c1f
+ALERT drop: oversize ping from 198.51.100.200 (80 bytes)
+ROUTE to ext
+ext: sent packet ab28ee529c61ab28ee529c61ab0800018266b801c63364c90000000000002d40a89b9f505044
+ROUTE to ext
+ext: sent packet ab28ee529c61ab28ee529c61ab0800018266b801c63364c9000000000000a3c0c64b43530ec8
+ROUTE to ext
+ext: sent packet ab28ee529c61ab28ee529c61ab0800018266b801c63364c9000000000000eecc5a9d528f7c1d
+ROUTE to ext
+ext: sent packet ab28ee529c61ab28ee529c61ab0800018266b801c63364c9000000000000f1d184a9a240b4f5
+ROUTE to ext
+ext: sent packet ab28ee529c61ab28ee529c61ab0800018266b801c63364c9000000000000cd2897f0098cedd5
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
+ALERT drop: ping rate limit from 198.51.100.201
