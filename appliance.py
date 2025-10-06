@@ -39,6 +39,8 @@ PUT YOUR REFERENCES HERE:
     https://www.geeksforgeeks.org/python/zip-in-python/
 [6] concate elements of byte array to string:
     https://www.geeksforgeeks.org/python/zip-in-python/
+[7] IPV4 library reference:
+    https://docs.python.org/3/library/ipaddress.html
 
 """
 
@@ -178,7 +180,7 @@ class translate:
         flag_bits = f"{flag_byte:08b}" # convert to 8-bit 
         return [name for bit, name in zip(flag_bits, TCP_FLAGS) if bit == '1'] # [5]
 
-    def parse(self):
+    def unpackage(self):
         b = self.bytes_data
         first_byte = b[0]
 
@@ -221,11 +223,84 @@ class translate:
             raise ValueError("Unknown protocol")
 
         return self.parsed
+    
+    def repackage(self):
+        original = self.bytes_data[0]
+        prefix_bits = original - (original % 4)
+
+        # iface
+        iface_bits = {v: k for k, v in IFACE_NUM.items()}[self.parsed['interface']]
+        first_byte = prefix_bits + iface_bits
+
+
+        # mac addr
+        mac_dst = bytes.fromhex(self.parsed['mac_src'].replace(':', ''))
+        mac_src = bytes.fromhex(self.parsed['mac_dst'].replace(':', ''))
+
+        # ethertype
+        ethertype = bytes.fromhex(self.parsed['ethertype'])
+
+        # protocol, src, dst
+        protocol_num = {v: k for k, v in PROTOCOL.items()}[self.parsed['ip_protocol']]
+        ip_src = bytes(map(int, self.parsed['ip_dst'].split('.')))
+        ip_dst = bytes(map(int, self.parsed['ip_src'].split('.')))
+
+        # protocol specific
+        payload = self.parsed.get('payload', b'')
+        protocol_fields = b''
+        if protocol_num == 6:  # TCP
+            protocol_fields = (
+                self.parsed['tcp_src_port'].to_bytes(2, 'big') +
+                self.parsed['tcp_dst_port'].to_bytes(2, 'big') +
+                b'\x00' * 10 +  
+                b'\x00'  
+            )
+        elif protocol_num == 17:  # UDP
+            protocol_fields = (
+                self.parsed['udp_src_port'].to_bytes(2, 'big') +
+                self.parsed['udp_dst_port'].to_bytes(2, 'big')
+            )
+        elif protocol_num == 1:  # ICMP
+            protocol_fields = (
+                self.parsed['icmp_type'].to_bytes(1, 'big') +
+                self.parsed['icmp_code'].to_bytes(1, 'big') +
+                bytes.fromhex(self.parsed['icmp_header'])
+            )
+
+        # packet assembly
+        packet = (
+            first_byte.to_bytes(1, 'big') +
+            mac_dst +
+            mac_src +
+            ethertype +
+            protocol_num.to_bytes(1, 'big') +
+            ip_src +
+            ip_dst +
+            protocol_fields +
+            payload
+        )
+
+        return packet
 
 
 class RouteTable:
+    def __init__(self):
+        self.routes = {}
+        for iface in [mgt, inw, dmz, ext]:
+            if iface.ip and iface.mask:
+                net = ipaddress.IPv4Network(f"{iface.ip}/{iface.mask}", strict=False) # [7]
+                self.routes[iface.name] = net
+
     def resolve(self, ip):
-        return
+        dest_ip = ipaddress.ip_address(ip) # [7]
+        best_iface = "ext"
+        best_prefix = -1
+        for iface, net in self.routes.items():
+            if dest_ip in net and net.prefixlen > best_prefix:
+                best_prefix = net.prefixlen
+                best_iface = iface
+        return best_iface
+
 
 class Connections:
     def add_or_update(self, nic: str, proto: int, src_ip: str, src_port: int, dst_ip: str,
@@ -267,7 +342,7 @@ class PacketEngine:
             print(f"ALERT drop: ICMP type {parsed['icmp_type']}:{parsed['icmp_code']} not allowed by policy")
             return 6
         
-        return
+        return 0
     
     def mgt_rules(self, packet: bytes, parsed: Dict[str, Any]):
         return
@@ -280,18 +355,18 @@ class PacketEngine:
     
     def process_packet(self, packet: bytes):
         tr = translate(packet)
-        parsed = tr.parse()
+        parsed = tr.unpackage()
 
         # icmp 
         if parsed.get('ip_protocol') == "ICMP":
-            self.icmp_rules(packet, parsed)  
+            if self.icmp_rules(packet, parsed) == 0:
+                tr_bytes = tr.repackage()
+                tr_package = tr_bytes.hex()
+                print(f"ROUTE to {parsed['interface']}\n{parsed['interface']}: sent packet {tr_package}")
             return
 
         return
         
-
-
-
 
 
 # ------------------- Simulator runner -------------------
