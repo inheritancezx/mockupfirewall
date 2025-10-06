@@ -69,22 +69,125 @@ class Translate:
 
         return self.parsed
 
-    def pretty_print(self):
-        for k, v in self.parsed.items():
-            # if isinstance(v, bytes):
-            # v = v.hex()
-            t = type(v).__name__
-            print(f"{k}: {v} {t}")
+    def repackage(self):
+        original = self.bytes_data[0]
+        prefix_bits = original - (original % 4)
+
+        # iface
+        iface_bits = {v: k for k, v in self.IFACE_NUM.items()}[self.parsed['interface']]
+        first_byte = prefix_bits + iface_bits
 
 
-# Example usage: read from file
-with open("traffic.spcap", "r") as f:  # replace with your filename
-    for line in f:
-        line = line.strip()  # remove newline and spaces
-        if not line:         # skip empty lines
-            continue
-        t = Translate(line)
-        t.parse()
-        t.pretty_print()
-        print("-" * 40)
+        # mac addr
+        mac_dst = bytes.fromhex(self.parsed['mac_src'].replace(':', ''))
+        mac_src = bytes.fromhex(self.parsed['mac_dst'].replace(':', ''))
 
+        # ethertype
+        ethertype = bytes.fromhex(self.parsed['ethertype'])
+
+        # protocol, src, dst
+        protocol_num = {v: k for k, v in self.PROTOCOL.items()}[self.parsed['ip_protocol']]
+        ip_src = bytes(map(int, self.parsed['ip_dst'].split('.')))
+        ip_dst = bytes(map(int, self.parsed['ip_src'].split('.')))
+
+        # protocol specific
+        payload = self.parsed.get('payload', b'')
+        proto_fields = b''
+        if protocol_num == 6:  # TCP
+            proto_fields = (
+                self.parsed['tcp_src_port'].to_bytes(2, 'big') +
+                self.parsed['tcp_dst_port'].to_bytes(2, 'big') +
+                b'\x00' * 10 +  
+                b'\x00'  
+            )
+        elif protocol_num == 17:  # UDP
+            proto_fields = (
+                self.parsed['udp_src_port'].to_bytes(2, 'big') +
+                self.parsed['udp_dst_port'].to_bytes(2, 'big')
+            )
+        elif protocol_num == 1:  # ICMP
+            proto_fields = (
+                self.parsed['icmp_type'].to_bytes(1, 'big') +
+                self.parsed['icmp_code'].to_bytes(1, 'big') +
+                bytes.fromhex(self.parsed['icmp_header'])
+            )
+
+        # packet assembly
+        packet = (
+            first_byte.to_bytes(1, 'big') +
+            mac_dst +
+            mac_src +
+            ethertype +
+            protocol_num.to_bytes(1, 'big') +
+            ip_src +
+            ip_dst +
+            proto_fields +
+            payload
+        )
+
+        return packet
+
+    # def pretty_print(self):
+    #     for k, v in self.parsed.items():
+    #         v = v.hex()
+    #         t = type(v).__name__
+    #         print(f"{k}: {v} {t}")
+
+    def pretty_print(self): 
+        for k, v in self.parsed.items(): 
+            if isinstance(v, bytes): 
+                v = v.hex() 
+            print(f"{k}: {v}")
+
+
+# read from file
+# with open("traffic.spcap", "r") as f:  # replace with your filename
+#     for line in f:
+#         line = line.strip()  # remove newline and spaces
+#         if not line:         # skip empty lines
+#             continue
+#         t = Translate(line)
+#         t.parse()
+#         t.pretty_print()
+#         print("-" * 40)
+
+
+# read per line: 
+hex_lines = [ 
+    "ab28ee529c61ab2143658709ba080001c63364c98266b8010800000000002d40a89b9f505044", 
+    # "ab2143658709ba28ee529c61ab0800018266b801c63364c90000000000002d40a89b9f505044",
+    # "ab2143658709ba28ee529c61ab0800018266b801c63364c90800000000002d40a89b9f505044"
+    # add more lines as needed 
+] 
+
+# for line in hex_lines: 
+#     t = Translate(line) 
+#     t.parse() 
+#     t.pretty_print() 
+#     print("-" * 40)
+
+# with repackage
+for line in hex_lines: 
+    # print("\n[original HEX]")
+    # print(' '.join(f'{byte:08b}' for byte in line.encode()))
+
+    # Step 1: Parse original
+    t1 = Translate(line)
+    parsed1 = t1.parse()
+    print("[Parsed original]")
+    t1.pretty_print()
+
+    # Step 2: Repackage
+    repackaged_bytes = t1.repackage()
+    repackaged_hex = repackaged_bytes.hex()
+    print("\n[Repackaged HEX]")
+    print(repackaged_hex)
+    print(' '.join(f'{byte:08b}' for byte in repackaged_bytes))
+
+    # Step 3: Parse the repackaged output
+    t2 = Translate(repackaged_hex)
+    parsed2 = t2.parse()
+    print("\n[Parsed repackaged]")
+    t2.pretty_print()
+
+    print("-" * 40)
