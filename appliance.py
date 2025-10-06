@@ -32,15 +32,36 @@ PUT YOUR REFERENCES HERE:
 [3] file closing and python oop destructor function:
     https://chatgpt.com/share/68c418b7-e51c-8004-aff3-15690bb2a02d
     https://www.geeksforgeeks.org/python/destructors-in-python/
-
-
-
+[4] converting bytes to int and configuring endianness:
+    https://stackoverflow.com/questions/34009653/convert-bytes-to-int
+    https://chatgpt.com/share/68e312b0-2ef0-8004-b993-6a69321e800f
+[5] iterating over two iteratables simultaneously:
+    https://www.geeksforgeeks.org/python/zip-in-python/
+[6] concate elements of byte array to string:
+    https://www.geeksforgeeks.org/python/zip-in-python/
 
 """
 
 # -----------------------------------------------------------------------------
 
 # Define your classes and functions here
+
+IFACE_NUM = {
+    0b00: "mgt",
+    0b01: "int",
+    0b10: "dmz",
+    0b11: "ext"
+}
+
+PROTOCOL = { # ed disc ref
+    1: "ICMP",
+    6: "TCP",
+    17: "UDP"
+}
+
+TCP_FLAGS = ["CWR", "ECE", "URG", "ACK", "PSH", "RST", "SYN", "FIN"]
+
+ICMP = 0
 
 class Interface:
     def __init__(self, name, mac, ip, mask, default_ip):
@@ -79,8 +100,8 @@ class Interface:
         self.default_ip = ip_address
 
     def send_packet(self, packet: bytes):
-        hexed = packet.hex() # [2] bytes to hexadecimal typecast
-        print(f"{self.name}: sent packet" + {hexed})
+        hexed = packet.hex() # [2] 
+        print(self.name + " : sent packet " + hexed)
 
 
 class InterfaceHandler:
@@ -110,19 +131,167 @@ class InterfaceHandler:
 
     def mgt_packet(self, packet: bytes):
         hexed = packet.hex()
-        print(f"Actioned management packet" + {hexed})
+        print("Actioned management packet" + hexed)
     
-    def __del__(self): # [3] closing file and destructor function 
+    def __del__(self): # [3]  
         self.file.close()
+    
 
+class PatTable:
+    def __init__(self):
+        self.from_out: Dict[int, str] = {}
+        self.to_out: Dict[Tuple[str, int], int] = {}
+
+    def set_pat(self, in_address: str, in_port: int, out_port: int):
+        self.from_out[out_port] = f"{in_address}:{in_port}"
+        self.to_out[(in_address, in_port)] = out_port
+        print(f"NAT: allocate {in_address}:{in_port} -> {ext.ip}:{out_port}")
+    
+    def get_unused_port(self):
+        start = 49152
+        end = 65535
+        while True:
+            port = random.randint(start, end)
+            if port not in self.to:
+                return port
+    
+    def get_pat_in(self,out_port: int):
+        return self.from_out.get(out_port, None)
+
+    def get_pat_out(self, in_address: str, in_port: int):
+        return self.to_out.get((in_address, in_port), None)
 
 
 # nic(s)
-
 mgt = Interface("mgt", "28:ee:52:85:f2:3a", "192.168.96.23", "255.255.240.0", None)
 inw = Interface("int", "28:ee:52:e2:b7:30", "10.0.0.1", "255.255.0.0", None)
 dmz = Interface("dmz", "28:ee:52:4c:4d:70", "10.1.0.1", "255.255.255.0", None)
 ext = Interface("ext", "28:ee:52:9c:61:ab", "130.102.184.1", "255.255.255.0", None)
+
+class translate:
+    def __init__(self, hex_line: str):
+        self.hex_line = hex_line
+        self.bytes_data = bytes.fromhex(hex_line)
+        self.parsed = {}
+
+    def tcp_flags(self, flag_byte: int):
+        flag_bits = f"{flag_byte:08b}" # convert to 8-bit 
+        return [name for bit, name in zip(flag_bits, TCP_FLAGS) if bit == '1'] # [5]
+
+    def parse(self):
+        b = self.bytes_data
+        first_byte = b[0]
+
+        # iface
+        iface_bits = first_byte % 4   
+        self.parsed['interface'] = IFACE_NUM.get(iface_bits, "unknown")
+
+        # mac addr
+        self.parsed['mac_dst'] = ':'.join(f'{x:02x}' for x in b[1:7]) # [6]
+        self.parsed['mac_src'] = ':'.join(f'{x:02x}' for x in b[7:13])
+
+        # ethertype (expect 0x0800)
+        eth_type = b[13:15]
+        self.parsed['ethertype'] = ''.join(f'{byte:02x}' for byte in eth_type)
+        if eth_type != b'\x08\x00':
+            raise ValueError("Ethertype: not IPv4")
+
+        # protocol, src, dst
+        ip_protocol = b[15]
+        self.parsed['ip_protocol'] = PROTOCOL.get(ip_protocol, ip_protocol)
+        self.parsed['ip_src'] = '.'.join(str(x) for x in b[16:20])
+        self.parsed['ip_dst'] = '.'.join(str(x) for x in b[20:24])
+
+        # protocol specific
+        if ip_protocol == 6:  # TCP
+            self.parsed['tcp_src_port'] = int.from_bytes(b[24:26], 'big') # [4]
+            self.parsed['tcp_dst_port'] = int.from_bytes(b[26:28], 'big')
+            self.parsed['tcp_flags'] = self.tcp_flags(b[36])
+            self.parsed['payload'] = b[37:]
+        elif ip_protocol == 17:  # UDP
+            self.parsed['udp_src_port'] = int.from_bytes(b[24:26], 'big')
+            self.parsed['udp_dst_port'] = int.from_bytes(b[26:28], 'big')
+            self.parsed['payload'] = b[28:]
+        elif ip_protocol == 1:  # ICMP
+            self.parsed['icmp_type'] = b[24]
+            self.parsed['icmp_code'] = b[25]
+            self.parsed['icmp_header'] = b[26:30].hex()
+            self.parsed['payload'] = b[30:]
+        else:
+            raise ValueError("Unknown protocol")
+
+        return self.parsed
+
+
+class RouteTable:
+    def resolve(self, ip):
+        return
+
+class Connections:
+    def add_or_update(self, nic: str, proto: int, src_ip: str, src_port: int, dst_ip: str,
+    dst_p: int, state: str):
+        return
+    
+    def state(self, nic: str, proto: int, src_ip: str, src_port: int, dst_ip: str, dst_p: int):
+        return
+
+
+class PacketEngine:  
+    def __init__(self, interface_handler: InterfaceHandler):
+        self.interface_handler = interface_handler
+        # self.route_table = RouteTable()
+        # self.pat_table = PatTable()
+        # self.connections = Connections()
+
+    def icmp_rules(self, packet: bytes, parsed: Dict[str, Any]):
+        global ICMP
+        ICMP += 1
+
+        # rule 3
+        length = len(packet) / 2 # 1 bytes = 2 hex chars
+        if parsed['icmp_type'] == 8 and length > 64:
+            print(f"ALERT drop: oversize ping from {parsed['ip_src']} ({len(packet)} bytes)")
+            return 3
+        
+        # rule 4
+        if ICMP > 5:
+            print(f"ALERT drop: ping rate limit from {parsed['ip_src']}")
+            return 4
+        
+        # rule 5
+        if ICMP < 5 and ICMP % 5 == 0:
+            return 5
+        
+        # rule 6    
+        if parsed['icmp_type'] != 8 and parsed['icmp_type'] != 0:
+            print(f"ALERT drop: ICMP type {parsed['icmp_type']}:{parsed['icmp_code']} not allowed by policy")
+            return 6
+        
+        return
+    
+    def mgt_rules(self, packet: bytes, parsed: Dict[str, Any]):
+        return
+    
+    def check_packet(self, packet: bytes):
+        return
+    
+    def route_packet(self, interface: str, packet: bytes):
+        return
+    
+    def process_packet(self, packet: bytes):
+        tr = translate(packet)
+        parsed = tr.parse()
+
+        # icmp 
+        if parsed.get('ip_protocol') == "ICMP":
+            self.icmp_rules(packet, parsed)  
+            return
+
+        return
+        
+
+
+
 
 
 # ------------------- Simulator runner -------------------
