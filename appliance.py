@@ -103,7 +103,7 @@ class Interface:
 
     def send_packet(self, packet: bytes):
         hexed = packet.hex() # [2] 
-        print(self.name + " : sent packet " + hexed)
+        print(f"{self.name} : sent packet {hexed}")
 
 
 class InterfaceHandler:
@@ -128,12 +128,12 @@ class InterfaceHandler:
         elif interface == "ext":
             ext.send_packet(packet)
         else:
-            print("unknown nic")
+            print("unknown interface")
             return
 
     def mgt_packet(self, packet: bytes):
         hexed = packet.hex()
-        print("Actioned management packet" + hexed)
+        print(f"Actioned management packet {hexed}")
     
     def __del__(self): # [3]  
         self.file.close()
@@ -314,23 +314,26 @@ class Connections:
 class PacketEngine:  
     def __init__(self, interface_handler: InterfaceHandler):
         self.interface_handler = interface_handler
-        # self.route_table = RouteTable()
+        self.route_table = RouteTable()
         # self.pat_table = PatTable()
         # self.connections = Connections()
 
     def icmp_rules(self, packet: bytes, parsed: Dict[str, Any]):
+        icmp_type = parsed['icmp_type']
+        icmp_code = parsed['icmp_code']
+        ip_src = parsed['ip_src']
         global ICMP
         ICMP += 1
 
         # rule 3
         length = len(packet) / 2 # 1 bytes = 2 hex chars
-        if parsed['icmp_type'] == 8 and length > 64:
-            print(f"ALERT drop: oversize ping from {parsed['ip_src']} ({len(packet)} bytes)")
+        if icmp_type == 8 and length > 64:
+            print(f"ALERT drop: oversize ping from {ip_src} ({length} bytes)")
             return 3
         
         # rule 4
         if ICMP > 5:
-            print(f"ALERT drop: ping rate limit from {parsed['ip_src']}")
+            print(f"ALERT drop: ping rate limit from {ip_src}")
             return 4
         
         # rule 5
@@ -338,19 +341,46 @@ class PacketEngine:
             return 5
         
         # rule 6    
-        if parsed['icmp_type'] != 8 and parsed['icmp_type'] != 0:
-            print(f"ALERT drop: ICMP type {parsed['icmp_type']}:{parsed['icmp_code']} not allowed by policy")
+        if icmp_type != 8 and icmp_type != 0:
+            print(f"ALERT drop: ICMP type {icmp_type}:{icmp_code} not allowed by policy")
             return 6
         
         return 0
     
-    def mgt_rules(self, packet: bytes, parsed: Dict[str, Any]):
-        return
+    def ssh_rules(self, packet: bytes, parsed: Dict[str, Any]):
+        ip_src = parsed['ip_src']
+        ip_dst = parsed['ip_dst']
+        iface_in = parsed['interface']
+        port = parsed.get('tcp_dst_port', None)
+        src_ip_iface = self.route_table.resolve(ip_src)
+        dest_ip_iface = self.route_table.resolve(ip_dst)
+
+        # rule 12
+        if iface_in == "mgt" and port == 22:
+            if src_ip_iface  == "int" and dest_ip_iface == "dmz":
+                print("true")
+            elif src_ip_iface  == "int":
+                print("this is int")
+            else:
+                print("might be dmz")
+            # print(f"ALLOW SSH int→dmz from {ip_src} to {ip_dst}")
+            # self.route_packet("dmz", packet)
+            return 0
+
+        # rule 14
+        if iface_in == "dmz" and port == 22 :
+            # print(f"ALLOW SSH dmz→int from {ip_src} to {ip_dst}")
+            # self.route_packet("int", packet)
+            return 0
+        
+        return -1
     
     def check_packet(self, packet: bytes):
         return
     
     def route_packet(self, interface: str, packet: bytes):
+        print(f"ROUTE to {interface}")
+        self.interface_handler.send_packet(interface, packet)
         return
     
     def process_packet(self, packet: bytes):
@@ -361,10 +391,21 @@ class PacketEngine:
         if parsed.get('ip_protocol') == "ICMP":
             if self.icmp_rules(packet, parsed) == 0:
                 tr_bytes = tr.repackage()
-                tr_package = tr_bytes.hex()
-                print(f"ROUTE to {parsed['interface']}\n{parsed['interface']}: sent packet {tr_package}")
+                routed_iface = self.route_table.resolve(parsed['ip_dst'])
+                self.route_packet(routed_iface, tr_bytes)
             return
 
+    
+        # ssh
+        if parsed.get('ip_protocol') == "TCP" and parsed.get('tcp_dst_port') == 22:
+            print("kena")
+            result = self.ssh_rules(packet, parsed)
+            # print(result)
+            if result  == 0:
+                # tr_bytes = tr.repackage()
+                self.interface_handler.mgt_packet(bytes.fromhex(packet))
+            return
+        
         return
         
 
