@@ -35,8 +35,9 @@ PUT YOUR REFERENCES HERE:
 [4] converting bytes to int and configuring endianness:
     https://stackoverflow.com/questions/34009653/convert-bytes-to-int
     https://chatgpt.com/share/68e312b0-2ef0-8004-b993-6a69321e800f
-[5] iterating over two iteratables simultaneously:
+[5] iterating syntaxes:
     https://www.geeksforgeeks.org/python/zip-in-python/
+    https://www.w3schools.com/python/ref_func_enumerate.asp
 [6] concate elements of byte array to string:
     https://www.geeksforgeeks.org/python/zip-in-python/
 [7] IPV4 library reference:
@@ -64,8 +65,13 @@ PROTOCOL = { # ed disc ref
 TCP_FLAGS = ["CWR", "ECE", "URG", "ACK", "PSH", "RST", "SYN", "FIN"]
 # TCP_STATES = ["new", "syn_sent", "established", "closed"]
 ICMP = 0
+NOT_ICMP = 0
+
 INCOMPLETE = 0
 COMPLETED = 0
+
+DMZ_HTTP = "10.1.0.54"
+DMZ_SSH = "10.1.0.92"
 
 class Interface:
     def __init__(self, name, mac, ip, mask, default_ip):
@@ -74,6 +80,9 @@ class Interface:
         self.ip = ip
         self.mask = mask
         self.default_ip = default_ip
+    
+    def get_name(self):
+        return self.name
 
     def get_mac(self):
         return self.mac
@@ -105,7 +114,7 @@ class Interface:
 
     def send_packet(self, packet: bytes):
         hexed = packet.hex() # [2] 
-        print(f"{self.name} : sent packet {hexed}")
+        print(f"{self.name}: sent packet {hexed}")
 
 
 class InterfaceHandler:
@@ -212,6 +221,19 @@ class Connections:
     def state(self, nic: str, proto: int, src_ip: str, src_port: int, dst_ip: str, dst_p: int):
         key = (nic, proto, src_ip, src_port, dst_ip, dst_p)
         return self.table.get(key)
+
+    # rule 10
+    def jump_box_to(self, parsed: Dict[str, Any], ip_type):
+            parsed['interface'] = dmz.get_name()
+            parsed['ip_dst'] = ip_type
+            parsed['mac_src'] = dmz.get_mac()
+            parsed['mac_dst'] = "96:a1:44:e3:6e:ae" # random mac
+
+    def jump_box_from(self, parsed: Dict[str, Any], ip_type):
+        parsed['interface'] = ext.get_name()
+        parsed['ip_dst'] = ip_type
+        parsed['mac_src'] = ext.get_mac()
+        parsed['mac_dst'] = "96:a1:44:e3:6e:ae" # random mac
     
 
 class Translate:
@@ -268,6 +290,7 @@ class Translate:
 
         return self.parsed
     
+
     def repackage(self):
         original = self.bytes_data[0]
         prefix_bits = original - (original % 4)
@@ -276,28 +299,37 @@ class Translate:
         iface_bits = {v: k for k, v in IFACE_NUM.items()}[self.parsed['interface']]
         first_byte = prefix_bits + iface_bits
 
-
-        # mac addr
-        mac_dst = bytes.fromhex(self.parsed['mac_src'].replace(':', ''))
-        mac_src = bytes.fromhex(self.parsed['mac_dst'].replace(':', ''))
+        # mac addr 
+        mac_dst = bytes.fromhex(self.parsed['mac_dst'].replace(':', ''))
+        mac_src = bytes.fromhex(self.parsed['mac_src'].replace(':', ''))
 
         # ethertype
         ethertype = bytes.fromhex(self.parsed['ethertype'])
 
-        # protocol, src, dst
+        # protocol, src, dst 
         protocol_num = {v: k for k, v in PROTOCOL.items()}[self.parsed['ip_protocol']]
-        ip_src = bytes(map(int, self.parsed['ip_dst'].split('.')))
-        ip_dst = bytes(map(int, self.parsed['ip_src'].split('.')))
+        ip_src = bytes(map(int, self.parsed['ip_src'].split('.')))
+        ip_dst = bytes(map(int, self.parsed['ip_dst'].split('.')))
 
         # protocol specific
         payload = self.parsed.get('payload', b'')
         protocol_fields = b''
         if protocol_num == 6:  # TCP
+            flags_byte = 0
+            for i, flag in enumerate(TCP_FLAGS):
+                if flag in self.parsed.get('tcp_flags', []):
+                    flags_byte |= (1 << (7 - i))
+            
+
+            seq_num = self.bytes_data[28:32]  # TCP sequence number (4 bytes)
+            ack_num = self.bytes_data[32:36]  # TCP ack number (4 bytes)
+            
             protocol_fields = (
                 self.parsed['tcp_src_port'].to_bytes(2, 'big') +
                 self.parsed['tcp_dst_port'].to_bytes(2, 'big') +
-                b'\x00' * 10 +  
-                b'\x00'  
+                seq_num +  
+                ack_num + 
+                flags_byte.to_bytes(1, 'big')  
             )
         elif protocol_num == 17:  # UDP
             protocol_fields = (
@@ -325,7 +357,6 @@ class Translate:
         )
 
         return packet
-
 
 class Rules:
     def __init__(self, route_table, conn_table):
@@ -374,20 +405,24 @@ class Rules:
                 return 8
             else:
                 return 0
+        # rule 10
+        elif iface_in == "ext" and port == 22:
+            self.conn_table.jump_box_to(parsed, DMZ_SSH)
+            return 0
         # rule 12
         elif iface_in == "int" and port == 22:
-            if self.route_table.resolve(ip_dst) == "dmz":
-                return 0
-            else:
+            if self.route_table.resolve(ip_dst) != "dmz":
                 return 12
         # rule 13
-
-        # rule 14
-        elif iface_in == "dmz" and port == 22 :
+        elif iface_in == "dmz" and port == 22 and ip_src == "10.1.0.92":
             if self.route_table.resolve(ip_dst) == "int":
                 return 0
-            else:
+        # rule 14
+        elif iface_in == "dmz" and port == 22 :
+            if self.route_table.resolve(ip_dst) != "int":
                 return 14
+        
+        return 0
     
     # rule 2
     def flag_rules(self, parsed: Dict[str, Any]):
@@ -396,7 +431,7 @@ class Rules:
         clean_flags = [f for f in flags if f not in ('URG', 'PSH')]
         parsed['tcp_flags'] = clean_flags
     
-    def overload_rules(self, parsed: Dict[str, Any]):
+    def incomplete_rules(self, parsed: Dict[str, Any]):
         #rule 7
         iface = parsed['interface']
         proto = parsed['ip_protocol']
@@ -410,17 +445,64 @@ class Rules:
         # key = (ip_src, src_port, ip_dst, dst_port)
 
         if 'SYN' in flags and 'ACK' not in flags:
-            self.conn_table.add_or_update(iface, proto, ip_src, src_port, ip_dst, dst_port, "syn_sent")
+            # self.conn_table.add_or_update(iface, proto, ip_src, src_port, ip_dst, dst_port, "syn_sent")
+            pass
         elif 'SYN' in flags:
-            self.conn_table.add_or_update(iface, proto, ip_src, src_port, ip_dst, dst_port, "new")
+            # self.conn_table.add_or_update(iface, proto, ip_src, src_port, ip_dst, dst_port, "new")
             INCOMPLETE += 1
         elif 'ACK' in flags:
-            self.conn_table.add_or_update(iface, proto, ip_src, src_port, ip_dst, dst_port, "established")
+            # self.conn_table.add_or_update(iface, proto, ip_src, src_port, ip_dst, dst_port, "established")
             COMPLETED += 1
 
         packet = INCOMPLETE - COMPLETED
         if packet > 100:
             print("ALERT drop: too many incomplete connections")
+    
+    def udp_rules(self, parsed: Dict[str, Any]):
+        iface_in = parsed['interface']
+
+        # rule 8
+        if iface_in == "mgt":
+            print("ALERT drop: new incoming UDP not allowed by policy")
+            return 8
+    
+    def dns_rules(self, parsed: Dict[str, Any]):
+        iface_in = parsed['interface']
+        
+        # rule 9
+        if iface_in == "ext":
+            return 9
+        elif iface_in in ["int", "dmz"]:
+            return 0
+        # rule 8
+        elif iface_in == "mgt":
+            print("ALERT drop: new incoming UDP not allowed by policy")
+            return 8
+        
+        return 0
+
+    def http_rules(self, parsed: Dict[str, Any]):
+        iface_in = parsed['interface']
+        port = parsed['tcp_dst_port']
+        
+        # rule 15
+        if iface_in in ["ext", "int"] and port in [80, 443]:
+            if iface_in == "ext":
+                self.conn_table.jump_box_to(parsed, DMZ_HTTP)
+            return 0
+        elif iface_in == "dmz" and port in [80, 443]:
+            return 0
+        
+        print("ALERT drop: new incoming TCP not allowed by policy")
+        return 15
+
+    def pat_rules(self, parsed: Dict[str, Any]):
+        iface_in = parsed['interface']
+        
+        if iface_in == "int":
+            return 0
+        
+        return 0
 
 
 class PacketEngine:  
@@ -429,42 +511,88 @@ class PacketEngine:
         self.route_table = RouteTable()
         self.conn_table = Connections()
         self.rules = Rules(self.route_table, self.conn_table)
-        # self.pat_table = PatTable()
-        # self.connections = Connections()
-    
-    def check_packet(self, packet: bytes):
-        return
-    
-    def route_packet(self, interface: str, packet: bytes):
-        print(f"ROUTE to {interface}")
-        self.interface_handler.send_packet(interface, packet)
-        return
-    
+
     def process_packet(self, packet: bytes):
+        routed_iface, tr_bytes = self.check_packet(packet)
+        if not routed_iface or not tr_bytes:
+            return  # dropped
+
+        if routed_iface == "mgt":
+            self.interface_handler.mgt_packet(tr_bytes)
+        else:
+            self.route_packet(routed_iface, tr_bytes)
+
+    def check_packet(self, packet: bytes):
         tr = Translate(packet)
         parsed = tr.unpackage()
 
+        if parsed == -1:
+            return (None, None)
+        
         # icmp 
         if parsed.get('ip_protocol') == "ICMP":
-            if self.rules.icmp_rules(packet, parsed) == 0:
+            if parsed['icmp_type'] == 8:  # Echo request
+                parsed['ip_src'], parsed['ip_dst'] = parsed['ip_dst'], parsed['ip_src']
+                parsed['mac_src'], parsed['mac_dst'] = parsed['mac_dst'], parsed['mac_src']
+                parsed['icmp_type'] = 0
+            
+            if self.rules.icmp_rules(bytes.fromhex(packet), parsed) == 0:
+                tr.parsed = parsed  
                 tr_bytes = tr.repackage()
                 routed_iface = self.route_table.resolve(parsed['ip_dst'])
-                self.route_packet(routed_iface, tr_bytes)
-            return
+                return (routed_iface, tr_bytes)
+            return (None, None)
+
         # tcp
         elif parsed.get('ip_protocol') == "TCP":
             self.rules.flag_rules(parsed)
-            self.rules.overload_rules(parsed)
+            self.rules.incomplete_rules(parsed)
 
             # ssh
             if parsed.get('tcp_dst_port') == 22:
                 if self.rules.ssh_rules(parsed) == 0:
-                    self.interface_handler.mgt_packet(bytes.fromhex(packet))
-        else:
-            #rule 16
-            print("ALERT drop: new incoming TCP not allowed by policy")
-            return 16
+                    tr_bytes = tr.repackage()
+                    routed_iface = self.route_table.resolve(parsed['ip_dst'])
+                    return (routed_iface, tr_bytes)
+            # http
+            elif parsed.get('tcp_dst_port') in [80, 443]:
+                if self.rules.http_rules(parsed) == 0:
+                    tr_bytes = tr.repackage()
+                    routed_iface = self.route_table.resolve(parsed['ip_dst'])
+                    return (routed_iface, tr_bytes)
+            # dns
+            elif parsed.get('tcp_dst_port') == 53:
+                if self.rules.dns_rules(parsed) == 0:
+                    tr_bytes = tr.repackage()
+                    routed_iface = self.route_table.resolve(parsed['ip_dst'])
+                    return (routed_iface, tr_bytes)
+            else:
+                print("ALERT drop: new incoming TCP not allowed by policy")
+                return (None, None)
+
+        # udp
+        elif parsed.get('ip_protocol') == "UDP":
+            # dns
+            if parsed.get('udp_dst_port') == 53:
+                if self.rules.dns_rules(parsed) == 0:
+                    tr_bytes = tr.repackage()
+                    routed_iface = self.route_table.resolve(parsed['ip_dst'])
+                    return (routed_iface, tr_bytes)
+            else:
+                if self.rules.udp_rules(parsed) == 0:
+                    tr_bytes = tr.repackage()
+                    routed_iface = self.route_table.resolve(parsed['ip_dst'])
+                    return (routed_iface, tr_bytes)
+            return (None, None)
         
+        # other
+        else:
+            print("ALERT drop: new incoming TCP not allowed by policy")
+            return (None, None)
+
+    def route_packet(self, interface: str, packet: bytes):
+        print(f"ROUTE to {interface}")
+        self.interface_handler.send_packet(interface, packet)
         return
         
 
